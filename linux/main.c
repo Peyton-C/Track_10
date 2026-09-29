@@ -23,6 +23,7 @@ typedef struct {
     GtkWidget *stem_scales[T10_MAX_STEMS];
     double unmuted[T10_MAX_STEMS];
     guint timer;
+    GtkCssProvider *css;
     /* Polling leaves the scrubber alone briefly after the user moves it. */
     gint64 scrubbed_at;
 } Player;
@@ -124,11 +125,14 @@ static void on_rate_selected(GObject *dropdown, GParamSpec *pspec, gpointer data
         t10_player_set_rate(p->player, rates[i]);
 }
 
+/* Looks the player up on each press, as dropping a file replaces it. */
 static gboolean on_space(GtkWidget *widget, GVariant *args, gpointer data)
 {
-    (void)widget;
     (void)args;
-    toggle_play(data);
+    (void)data;
+    Player *p = g_object_get_data(G_OBJECT(widget), "player");
+    if (p)
+        toggle_play(p);
     return TRUE;
 }
 
@@ -212,33 +216,41 @@ static char *color_css(uint32_t rgb)
     return g_strdup_printf("#%06X", rgb & 0xFFFFFF);
 }
 
-/* Each window gets its own stylesheet, since stem colours come from the file. */
-static void add_stem_css(Player *p, GtkWidget *root)
+/*
+ * Stem colours come from the file, so each player gets its own stylesheet.
+ * Stylesheets apply to the whole display, so the rules are scoped to a class
+ * unique to this player's content, or windows would take each other's colours.
+ */
+static void add_stem_css(Player *p, GtkWidget *content)
 {
+    static unsigned next_id;
+    char *scope = g_strdup_printf("t10-player-%u", next_id++);
+    gtk_widget_add_css_class(content, scope);
+
     GString *css = g_string_new(NULL);
     int count = t10_player_stem_count(p->player);
     GString *gradient = g_string_new(NULL);
     for (int i = 0; i < count; i++) {
         char *color = color_css(t10_player_stem_color(p->player, i));
         g_string_append_printf(css,
-                               ".stem-%d .dot { color: %s; }\n"
-                               ".stem-%d.muted .dot { color: alpha(%s, 0.35); }\n"
-                               "scale.stem-%d highlight { background: %s; }\n",
-                               i, color, i, color, i, color);
+                               ".%s .stem-%d .dot { color: %s; }\n"
+                               ".%s .stem-%d.muted .dot { color: alpha(%s, 0.35); }\n"
+                               ".%s scale.stem-%d highlight { background: %s; }\n",
+                               scope, i, color, scope, i, color, scope, i, color);
         g_string_append_printf(gradient, "%s%s", i ? ", " : "", color);
         g_free(color);
     }
     if (count > 1)
-        g_string_append_printf(css, ".cover-placeholder { background-image: linear-gradient(135deg, %s); }\n",
-                               gradient->str);
+        g_string_append_printf(css, ".%s .cover-placeholder { background-image: linear-gradient(135deg, %s); }\n",
+                               scope, gradient->str);
 
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css->str);
-    gtk_style_context_add_provider_for_display(gtk_widget_get_display(root), GTK_STYLE_PROVIDER(provider),
+    p->css = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(p->css, css->str);
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(p->css),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
-    g_object_set_data_full(G_OBJECT(root), "stem-css", provider, g_object_unref);
     g_string_free(css, TRUE);
     g_string_free(gradient, TRUE);
+    g_free(scope);
 }
 
 static GtkWidget *build_cover(Player *p)
@@ -259,7 +271,7 @@ static GtkWidget *build_cover(Player *p)
             return image;
         }
     }
-    GtkWidget *icon = gtk_image_new_from_icon_name("audio-x-generic-symbolic");
+    GtkWidget *icon = gtk_image_new_from_icon_name("track10-music-symbolic");
     gtk_image_set_pixel_size(GTK_IMAGE(icon), 64);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_size_request(box, 200, 200);
@@ -404,6 +416,10 @@ static void player_free(gpointer data)
     Player *p = data;
     if (p->timer)
         g_source_remove(p->timer);
+    if (p->css) {
+        gtk_style_context_remove_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(p->css));
+        g_object_unref(p->css);
+    }
     t10_player_free(p->player);
     g_free(p);
 }
@@ -431,7 +447,8 @@ static gboolean save_snapshot(gpointer data)
     return G_SOURCE_REMOVE;
 }
 
-static void open_window(GtkApplication *app, GFile *file)
+/* Opens a file, reporting failure over `parent`. */
+static T10Player *load_player(GtkWindow *parent, GFile *file)
 {
     char *path = g_file_get_path(file);
     char *error = NULL;
@@ -439,29 +456,29 @@ static void open_window(GtkApplication *app, GFile *file)
     if (!player) {
         char *name = g_file_get_basename(file);
         char *heading = g_strdup_printf("Can’t Play “%s”", name);
-        show_error(gtk_application_get_active_window(app), heading, error ? error : "The file is not local.");
+        show_error(parent, heading, error ? error : "The file is not local.");
         g_free(heading);
         g_free(name);
         free(error);
-        g_free(path);
-        return;
     }
     g_free(path);
+    return player;
+}
 
+/* Fills `window` with a player for `player`, replacing any there already. */
+static void attach_player(GtkWindow *window, T10Player *player, GFile *file)
+{
     Player *p = g_new0(Player, 1);
     p->player = player;
+    p->window = window;
 
-    GtkWidget *window = gtk_application_window_new(app);
-    p->window = GTK_WINDOW(window);
     char *title = g_file_get_basename(file);
-    gtk_window_set_title(GTK_WINDOW(window), title);
+    gtk_window_set_title(window, title);
     g_free(title);
-    gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
-    gtk_widget_add_css_class(window, "track10");
-    g_object_set_data_full(G_OBJECT(window), "player", p, player_free);
-    add_stem_css(p, window);
 
     GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_add_css_class(content, "player");
+    add_stem_css(p, content);
     gtk_widget_set_margin_start(content, 16);
     gtk_widget_set_margin_end(content, 16);
     gtk_widget_set_margin_top(content, 16);
@@ -481,19 +498,61 @@ static void open_window(GtkApplication *app, GFile *file)
     gtk_box_append(GTK_BOX(top), right);
     gtk_box_append(GTK_BOX(content), top);
     gtk_box_append(GTK_BOX(content), build_transport(p));
-    gtk_window_set_child(GTK_WINDOW(window), content);
+
+    /* The old content goes first, then the old player it was using. */
+    gtk_window_set_child(window, content);
+    g_object_set_data_full(G_OBJECT(window), "player", p, player_free);
+
+    p->timer = g_timeout_add(100, on_tick, p);
+    t10_player_play(p->player);
+    update_play_button(p);
+}
+
+/* A file dropped onto a window plays in it, replacing the current track. */
+static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data)
+{
+    (void)target;
+    (void)x;
+    (void)y;
+    GtkWindow *window = data;
+    GSList *files = gdk_file_list_get_files(g_value_get_boxed(value));
+    if (!files)
+        return FALSE;
+    GFile *file = files->data;
+    g_slist_free(files);
+
+    T10Player *player = load_player(window, file);
+    if (!player)
+        return FALSE;
+    attach_player(window, player, file);
+    return TRUE;
+}
+
+static void open_window(GtkApplication *app, GFile *file)
+{
+    T10Player *player = load_player(gtk_application_get_active_window(app), file);
+    if (!player)
+        return;
+
+    GtkWidget *window = gtk_application_window_new(app);
+    gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
+    gtk_widget_add_css_class(window, "track10");
 
     GtkEventController *shortcuts = gtk_shortcut_controller_new();
     gtk_shortcut_controller_set_scope(GTK_SHORTCUT_CONTROLLER(shortcuts), GTK_SHORTCUT_SCOPE_MANAGED);
     gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(shortcuts),
                                          gtk_shortcut_new(gtk_keyval_trigger_new(GDK_KEY_space, 0),
-                                                          gtk_callback_action_new(on_space, p, NULL)));
+                                                          gtk_callback_action_new(on_space, NULL, NULL)));
     gtk_widget_add_controller(window, shortcuts);
 
-    p->timer = g_timeout_add(100, on_tick, p);
+    GtkDropTarget *drop = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
+    g_signal_connect(drop, "drop", G_CALLBACK(on_drop), window);
+    gtk_widget_add_controller(window, GTK_EVENT_CONTROLLER(drop));
+
+    attach_player(GTK_WINDOW(window), player, file);
     gtk_window_present(GTK_WINDOW(window));
-    t10_player_play(p->player);
-    update_play_button(p);
+    /* Show the focus ring once the keyboard is used, not on the first slider. */
+    gtk_window_set_focus_visible(GTK_WINDOW(window), FALSE);
     if (g_getenv("T10_SNAPSHOT"))
         g_timeout_add(1500, save_snapshot, window);
 }
@@ -562,6 +621,9 @@ static void on_startup(GApplication *app)
                                       ".track10 .transport { border-radius: 999px; padding: 6px 16px; }\n"
                                       ".track10 .stem-name.muted label:not(.dot) { opacity: 0.5; }\n"
                                       ".track10 .numeric { font-feature-settings: 'tnum'; }\n"
+                                      ".track10:drop(active) .player {\n"
+                                      "  outline: 3px solid alpha(currentColor, 0.5); outline-offset: 8px;\n"
+                                      "  border-radius: 12px; }\n"
                                       /* Quick Look's sliders: a thick trough, white knob, neutral fill. */
                                       ".track10 scale trough { min-height: 6px; border-radius: 3px;\n"
                                       "  background: alpha(currentColor, 0.15); border: none; }\n"

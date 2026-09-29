@@ -4,6 +4,9 @@ import SwiftUI
 /// the stem mixer in place of the volume slider.
 struct PlayerView: View {
     @Bindable var model: PlayerModel
+    /// Called with a file dropped onto the window, to play it instead.
+    var onDropFile: (URL) -> Void = { _ in }
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -20,6 +23,20 @@ struct PlayerView: View {
         }
         .padding(16)
         .frame(width: 640)
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: \.isFileURL) else { return false }
+            // Leave the drop callback before opening, which can show an alert.
+            DispatchQueue.main.async { onDropFile(url) }
+            return true
+        } isTargeted: { isDropTargeted = $0 }
         .alert("Playback Stopped", isPresented: .constant(model.error != nil)) {
             Button("OK") {}
         } message: {
