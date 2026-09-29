@@ -34,6 +34,10 @@ struct T10Player {
     double volumes[T10_MAX_STEMS];
     double rate;
     gint64 duration;
+    /* Where a seek is heading until the pipeline settles, or -1. Queries
+     * fail or read 0 while a flushing seek prerolls. */
+    gint64 seek_target;
+    gint64 last_position;
     bool playing;
     char *error;
 };
@@ -195,6 +199,7 @@ T10Player *t10_player_open(const char *path, char **error)
         return NULL;
     }
     player->rate = 1.0;
+    player->seek_target = -1;
     for (int i = 0; i < T10_MAX_STEMS; i++)
         player->volumes[i] = 1.0;
 
@@ -234,14 +239,18 @@ static void seek_to(T10Player *player, gint64 position)
 {
     gst_element_seek(player->pipeline, player->rate, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE,
                      GST_SEEK_TYPE_SET, position, GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
+    player->seek_target = position;
+    player->last_position = position;
 }
 
 unsigned t10_player_poll(T10Player *player)
 {
     unsigned events = 0;
     GstMessage *msg;
-    while ((msg = gst_bus_pop_filtered(player->bus, GST_MESSAGE_EOS | GST_MESSAGE_ERROR))) {
-        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS) {
+    while ((msg = gst_bus_pop_filtered(player->bus, GST_MESSAGE_EOS | GST_MESSAGE_ERROR | GST_MESSAGE_ASYNC_DONE))) {
+        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ASYNC_DONE) {
+            player->seek_target = -1;
+        } else if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS) {
             t10_player_pause(player);
             seek_to(player, 0);
             events |= T10_EVENT_EOS;
@@ -281,8 +290,12 @@ bool t10_player_is_playing(const T10Player *player)
 double t10_player_position(T10Player *player)
 {
     gint64 position;
-    if (!gst_element_query_position(player->pipeline, GST_FORMAT_TIME, &position) || position < 0)
-        return 0;
+    if (player->seek_target >= 0)
+        position = player->seek_target;
+    else if (gst_element_query_position(player->pipeline, GST_FORMAT_TIME, &position) && position >= 0)
+        player->last_position = position;
+    else
+        position = player->last_position;
     return (double)position / GST_SECOND;
 }
 

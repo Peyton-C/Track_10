@@ -62,6 +62,22 @@ int main(int argc, char **argv)
         wait_seconds(player, 1);
         printf("after 1s more at 2.0x:   %.2f s\n", t10_player_position(player));
 
+        /* The position must never read as 0 while a seek settles. */
+        double before = t10_player_position(player);
+        t10_player_seek(player, before + 15);
+        double lowest = before + 15;
+        struct timespec tick = {0, 20 * 1000 * 1000};
+        for (int i = 0; i < 25; i++) {
+            /* Read first: the frontends refresh straight after seeking. */
+            double now = t10_player_position(player);
+            if (now < lowest)
+                lowest = now;
+            nanosleep(&tick, NULL);
+            t10_player_poll(player);
+        }
+        printf("skip +15s from %.2f s:    lowest reading %.2f s%s\n", before, lowest,
+               lowest < before ? "  <-- FAIL" : "");
+
         t10_player_set_rate(player, 1.0);
         t10_player_seek(player, t10_player_duration(player) - 0.5);
         wait_seconds(player, 1.5);
