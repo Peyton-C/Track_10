@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import Observation
 import SwiftUI
 import Track10Core
@@ -32,6 +33,8 @@ final class PlayerModel {
 
     @ObservationIgnored private var player: OpaquePointer?
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var deviceListener: AudioObjectPropertyListenerBlock?
+    @ObservationIgnored private var pendingReset: DispatchWorkItem?
 
     init(url: URL) throws {
         var message: UnsafeMutablePointer<CChar>?
@@ -73,11 +76,46 @@ final class PlayerModel {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+
+        // GStreamer's macOS output stays on the device it opened with, so
+        // follow the system's default output by hand.
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.defaultOutputChanged() }
+        }
+        var address = Self.defaultOutputAddress
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
+        deviceListener = listener
+    }
+
+    private static let defaultOutputAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+
+    /// Connecting headphones can change the default several times in a row,
+    /// so reset once things settle.
+    private func defaultOutputChanged() {
+        pendingReset?.cancel()
+        let reset = DispatchWorkItem { [weak self] in
+            guard let self, let player = self.player else { return }
+            if !t10_player_reset_output(player) {
+                self.error = t10_player_error(player).map { String(cString: $0) }
+            }
+            self.isPlaying = t10_player_is_playing(player)
+        }
+        pendingReset = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: reset)
     }
 
     func close() {
         timer?.invalidate()
         timer = nil
+        pendingReset?.cancel()
+        if let deviceListener {
+            var address = Self.defaultOutputAddress
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, deviceListener)
+        }
+        deviceListener = nil
         if let player {
             t10_player_free(player)
         }

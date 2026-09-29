@@ -48,6 +48,14 @@ double t10_player_position(T10Player *player);
 double t10_player_duration(const T10Player *player);
 void t10_player_seek(T10Player *player, double seconds);
 
+/*
+ * Reopens the audio output on the current default device, keeping position
+ * and play state. Call it when the system's default output changes: the
+ * macOS sink stays on the device it opened with. Blocks briefly. Returns
+ * false on failure, with the reason in t10_player_error().
+ */
+bool t10_player_reset_output(T10Player *player);
+
 /* Playback speed, pitch preserved. 1.0 is normal speed. */
 double t10_player_rate(const T10Player *player);
 void t10_player_set_rate(T10Player *player, double rate);

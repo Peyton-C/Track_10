@@ -30,6 +30,8 @@ struct T10Player {
     GstElement *mixer;
     GstPad *mixer_pads[T10_MAX_STEMS];
     GstElement *branches[T10_MAX_STEMS];
+    GstElement *output_tail; /* the element feeding the sink */
+    GstElement *sink;
     GstBus *bus;
     double volumes[T10_MAX_STEMS];
     double rate;
@@ -151,6 +153,8 @@ static bool build_pipeline(T10Player *player, const char *path, char **error)
 
     g_signal_connect(demux, "pad-added", G_CALLBACK(on_pad_added), player);
     player->bus = gst_element_get_bus(player->pipeline);
+    player->output_tail = resample;
+    player->sink = sink;
     return true;
 }
 
@@ -312,6 +316,42 @@ void t10_player_seek(T10Player *player, double seconds)
     if (player->duration > 0 && position > player->duration)
         position = player->duration;
     seek_to(player, position);
+}
+
+/*
+ * A sink binds to the default device when it opens and stays there, so a new
+ * device needs a new sink. Swapping one in a running pipeline means handling
+ * the lost clock, so instead the whole pipeline stops, gets the new sink,
+ * prerolls again and seeks back, which takes a moment but is simple.
+ */
+bool t10_player_reset_output(T10Player *player)
+{
+    gint64 position = (gint64)(t10_player_position(player) * GST_SECOND);
+    bool was_playing = player->playing;
+
+    gst_element_set_state(player->pipeline, GST_STATE_NULL);
+    player->playing = false;
+    player->seek_target = -1;
+
+    GstElement *sink = make_sink();
+    if (sink) {
+        gst_element_unlink(player->output_tail, player->sink);
+        gst_bin_remove(GST_BIN(player->pipeline), player->sink);
+        gst_bin_add(GST_BIN(player->pipeline), sink);
+        gst_element_link(player->output_tail, sink);
+        player->sink = sink;
+    }
+
+    char *error = NULL;
+    if (!preroll(player, &error)) {
+        free(player->error);
+        player->error = error;
+        return false;
+    }
+    seek_to(player, position);
+    if (was_playing)
+        t10_player_play(player);
+    return true;
 }
 
 double t10_player_rate(const T10Player *player)

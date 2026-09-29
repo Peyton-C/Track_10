@@ -78,6 +78,15 @@ int main(int argc, char **argv)
         printf("skip +15s from %.2f s:    lowest reading %.2f s%s\n", before, lowest,
                lowest < before ? "  <-- FAIL" : "");
 
+        double at = t10_player_position(player);
+        if (!t10_player_reset_output(player)) {
+            fprintf(stderr, "error: %s\n", t10_player_error(player));
+            return 1;
+        }
+        wait_seconds(player, 0.5);
+        printf("reset output at %.2f s:   now %.2f s, playing=%d\n", at, t10_player_position(player),
+               t10_player_is_playing(player));
+
         t10_player_set_rate(player, 1.0);
         t10_player_seek(player, t10_player_duration(player) - 0.5);
         wait_seconds(player, 1.5);
