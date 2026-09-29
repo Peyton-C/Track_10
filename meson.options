@@ -1,0 +1,1 @@
+option('gtk', type: 'feature', value: 'auto', description: 'Build the GTK 4 frontend')

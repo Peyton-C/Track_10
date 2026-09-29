@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Track 10
+Comment=Play Native Instruments stem files
+Exec=track10 %F
+Icon=io.github.peyton_c.Track10
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=audio/mp4;video/mp4;
+Keywords=stems;music;player;

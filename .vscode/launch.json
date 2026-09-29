@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Track_10}",
+            "name": "Debug Track10",
+            "target": "Track10",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Track10"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Track_10}",
+            "name": "Release Track10",
+            "target": "Track10",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Track10"
+        }
+    ]
+}

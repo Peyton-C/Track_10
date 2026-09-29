@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <!-- GtkApplication adds <resource base path>/icons to the icon theme. -->
+  <gresource prefix="/io/github/peyton_c/Track10/icons/scalable/actions">
+    <file preprocess="xml-stripblanks" alias="track10-skip-back-symbolic.svg">icons/track10-skip-back-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="track10-skip-forward-symbolic.svg">icons/track10-skip-forward-symbolic.svg</file>
+  </gresource>
+</gresources>
