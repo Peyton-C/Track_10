@@ -547,6 +547,9 @@ static void on_open(GApplication *app, GFile **files, int n_files, const char *h
 static void on_startup(GApplication *app)
 {
     (void)app;
+    /* Clicking a slider's track jumps there, as on macOS, rather than paging
+     * towards the click. Most desktops already default to this; macOS GTK does not. */
+    g_object_set(gtk_settings_get_default(), "gtk-primary-button-warps-slider", TRUE, NULL);
     GtkCssProvider *provider = gtk_css_provider_new();
     gtk_css_provider_load_from_string(provider,
                                       ".track10 .title-1 { font-size: 20pt; font-weight: 800; }\n"
