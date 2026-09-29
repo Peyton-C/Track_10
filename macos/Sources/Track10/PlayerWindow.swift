@@ -1,36 +1,7 @@
 import SwiftUI
 
-/// One window per open file, laid out like Quick Look's audio preview with
+/// A player window's content, laid out like Quick Look's audio preview with
 /// the stem mixer in place of the volume slider.
-struct PlayerWindow: View {
-    let url: URL
-    @State private var model: PlayerModel?
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if let model {
-                PlayerView(model: model)
-            } else if let error {
-                ContentUnavailableView("Can’t Play This File", systemImage: "exclamationmark.triangle",
-                                       description: Text(error))
-                    .frame(width: 420, height: 240)
-            } else {
-                ProgressView().frame(width: 640, height: 300)
-            }
-        }
-        .task(id: url) {
-            do {
-                model = try PlayerModel(url: url)
-                model?.togglePlay()
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
-        .onDisappear { model?.close() }
-    }
-}
-
 struct PlayerView: View {
     @Bindable var model: PlayerModel
 
