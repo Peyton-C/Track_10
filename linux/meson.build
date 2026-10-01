@@ -14,3 +14,8 @@ install_data('../assets/track_10_icon/track_10_icon.png',
   rename: '@0@.png'.format(app_id),
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / '512x512' / 'apps',
 )
+
+import('gnome').post_install(
+  gtk_update_icon_cache: true,
+  update_desktop_database: true,
+)

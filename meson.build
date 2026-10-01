@@ -1,5 +1,5 @@
 project('track10', 'c',
-  version: '0.1.0',
+  version: '1.0.0',
   license: 'MIT',
   meson_version: '>= 1.0',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=debugoptimized'],
