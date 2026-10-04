@@ -132,7 +132,7 @@ struct StemMixer: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 14))
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 }
 
@@ -189,7 +189,7 @@ struct TransportBar: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
-        .background(.quaternary.opacity(0.6), in: .capsule)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 

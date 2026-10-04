@@ -88,11 +88,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable, .miniaturizable],
+        // Makes title bar not look seperate from background.
+
+        let window = NSWindow(contentRect: .zero,
+                              styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(white: isDark ? 0.12 : 0.93, alpha: 1)
+        }
         let host = NSHostingController(rootView: playerView(model, in: window))
         host.sizingOptions = []
-        host.safeAreaRegions = []
         window.contentViewController = host
         window.setContentSize(Self.contentSize(of: host))
         window.isReleasedWhenClosed = false
